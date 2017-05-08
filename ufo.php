@@ -1,7 +1,7 @@
 <?php
 class Ufo {
 	public static function get_clean(){
-		$instance = self::get();
+		$instance = self::get_instance();
 		$messages = json_encode($instance->messages);
 		$instance->messages = [];
 		return $messages;
