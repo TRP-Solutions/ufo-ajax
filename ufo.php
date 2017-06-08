@@ -12,7 +12,7 @@ class Ufo {
 	}
 
 	public static function output($target, $content){
-		self::add('output',['target'=>$target,'content'=>$content]);
+		self::add('output',['target'=>$target,'content'=>(string)$content]);
 	}
 
 	public static function attribute($target, $name, $content){
@@ -51,8 +51,8 @@ class Ufo {
 		self::add('abort',['id'=>$id]);
 	}
 
-	public static function callbackadd($id,$point,$func){
-		self::add('callbackadd',['id'=>$id,'point'=>$point,'func'=>$func]);
+	public static function callbackadd($id,$point,$func,...$args){
+		self::add('callbackadd',['id'=>$id,'point'=>$point,'func'=>$func,'args'=>$args]);
 	}
 
 	public static function callbackremove($id,$point,$func){

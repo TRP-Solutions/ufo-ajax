@@ -1,7 +1,8 @@
 var Ufo = (function(){
-	status_callback_points = {
+	var status_callback_points = {
 		403:'forbidden'
 	};
+	var url_root = '';
 
 	function Connection(id){
 		this.id = id;
@@ -47,10 +48,18 @@ var Ufo = (function(){
 		return connections[id];
 	}
 
+	function modify_url(url){
+		return url_root + url + (url.indexOf('?')==-1 ? "?" : "&") + "ufo=" + Math.floor((Math.random() * 8999999) + 1000000);
+	}
+
+	function set_root(new_root){
+		url_root = new_root;
+	}
+
 	/* Client-Server interface  */
 	function post(id, url, form){
 		var con = init(id);
-		con.url = url;
+		con.url = modify_url(url);
 		callback(id,'post');
 		if(typeof form != 'object') form = document.getElementById(form);
 		con.post(new FormData(form));
@@ -58,7 +67,7 @@ var Ufo = (function(){
 
 	function get(id, url){
 		var con = init(id);
-		con.url = url;
+		con.url = modify_url(url);
 		callback(id,'get');
 		update(id);
 	}
@@ -139,8 +148,8 @@ var Ufo = (function(){
 				case 'attribute': reply_attribute(inst); break;
 				case 'close': reply_close(inst); break;
 
-				case 'callbackadd': callback_add(inst['id'],inst['point'],inst['func']); break;
-				case 'callbackremove': callback_remove(inst['id'],inst['point'],inst['funct']); break;
+				case 'callbackadd': callback_add(inst['id'],inst['point'],inst['func'],inst['args']); break;
+				case 'callbackremove': callback_remove(inst['id'],inst['point'],inst['func']); break;
 				case 'callbackclear': callback_clear(inst['id']); break;
 				case 'call': tailcalls.push(inst); break;
 
@@ -210,7 +219,7 @@ var Ufo = (function(){
 				elem.value = inst['content'];
 				elem.dispatchEvent(new Event('change'));
 			} else {
-				if(content!==null) elem.setAttribute(inst['name'],inst['content']);
+				if(inst['content']!==null) elem.setAttribute(inst['name'],inst['content']);
 				else elem.removeAttribute(inst['name']);
 			}
 		} else {
@@ -229,9 +238,11 @@ var Ufo = (function(){
 	function callback(id, point){
 		var con = init(id,true);
 		if(!con) return;
+			
 		if(Array.isArray(con.callback[point])){
-			for(var i=0; i < con.callback[point].length; i++){
-				callback_call(con.callback[point][i]);
+			var callbacks = con.callback[point]
+			for(var i=0; i < callbacks.length; i++){
+				callback_call(callbacks[i].func, callbacks[i].args);
 			}
 		}
 	}
@@ -239,21 +250,26 @@ var Ufo = (function(){
 	/* Callback interface */
 	var callback_functions = {};
 
-	function callback_add(id,point,func_name){
+	function callback_add(id,point,func_name,args){
 		var con = init(id);
 		if(typeof callback_functions[func_name] != 'function'){
 			log('ufo.js | unknown callback function: '+func_name);
 			return;
 		}
 		if(!Array.isArray(con.callback[point])) con.callback[point] = [];
-		con.callback[point].push(func_name);
+		con.callback[point].push({func:func_name,args:args});
 	}
 
 	function callback_remove(id,point,func_name){
 		var con = init(id,true);
 		if(!con) return;
 		if(!Array.isArray(con.callback[point])) return;
-		var index = con.callback[point].indexOf(func_name);
+		for(var i=0;i<con.callback[point].length;i++){
+			if(con.callback[point][i].name == func_name){
+				var index = i;
+				break;
+			}
+		}
 		delete con.callback[point][index];
 	}
 
@@ -275,6 +291,7 @@ var Ufo = (function(){
 	}
 
 	var exportobj = {
+		set_root: set_root,
 		post: post,
 		get: get,
 		update: update,
@@ -282,7 +299,10 @@ var Ufo = (function(){
 		stop: stop,
 		unset: unset,
 		abort: abort,
-		callback_functions: callback_functions
+		callback_functions: callback_functions,
+		callback_add: callback_add,
+		callback_remove: callback_remove,
+		callback_clear: callback_clear
 	};
 
 	/* Data Store */
