@@ -62,7 +62,8 @@ var Ufo = (function(){
 		con.url = modify_url(url);
 		callback(id,'post');
 		if(typeof form != 'object') form = document.getElementById(form);
-		con.post(new FormData(form));
+		if(!(form instanceof FormData)) form = new FormData(form);
+		con.post(form);
 	}
 
 	function get(id, url){
@@ -174,7 +175,6 @@ var Ufo = (function(){
 	}
 
 	function reply_output(inst, id){
-		// TODO: This function might need refactoring.
 		var target = inst['target'];
 		var content = inst['content'];
 		var original = document.getElementById(target);
@@ -192,18 +192,13 @@ var Ufo = (function(){
 			if(original) {
 				var clone = original.cloneNode(true);
 				clone.innerHTML=content;
-				clone.style.display = 'none';
-				
-				if(original.innerHTML!=clone.innerHTML) {
-					original.parentNode.insertBefore(clone, original);
-					
-					setTimeout(function() {
-						clone.style.display = '';
-					
-						original.style.display = 'none';
-						original.parentNode.removeChild(original);
-						callback(id,'inner'); // CALL back only run if(original.innerHTML!=clone.innerHTML)
-					},1,id);
+				if(original.innerHTML != clone.innerHTML) {
+					var top = original.scrollTop;
+					var left = original.scrollLeft;
+					original.parentNode.replaceChild(clone, original);
+					clone.scrollTop = top;
+					clone.scrollLeft = left;
+					callback(id,'inner'); // CALL back only run if(original.innerHTML!=clone.innerHTML)
 				}
 			}
 			else {
@@ -217,6 +212,9 @@ var Ufo = (function(){
 		if(elem){
 			if(inst['name']=="value") { // SUPPORT FOR SELECT
 				elem.value = inst['content'];
+				elem.dispatchEvent(new Event('change'));
+			} else if(elem.nodeName=='INPUT' && inst['name']=="checked") { // SUPPORT FOR CHECKBOX
+				elem.checked = inst['content'];
 				elem.dispatchEvent(new Event('change'));
 			} else {
 				if(inst['content']!==null) elem.setAttribute(inst['name'],inst['content']);
