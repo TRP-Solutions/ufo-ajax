@@ -1,4 +1,8 @@
 <?php
+/*
+UfoAjax is licensed under the Apache License 2.0 license
+https://github.com/TRP-Solutions/ufo-ajax/blob/master/LICENSE
+*/
 class Ufo {
 	public static function get_clean(){
 		$instance = self::get_instance();
