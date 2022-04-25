@@ -93,7 +93,14 @@ class Ufo {
 
 	private $messages = [];
 	private function __construct(){
-		register_shutdown_function([$this,'write']);	
+		$this->handle_connection_close_request();
+		register_shutdown_function([$this,'write']);
+	}
+
+	private function handle_connection_close_request(){
+		if(!headers_sent() && !empty($_SERVER['HTTP_UFO_CONNECTION']) && strtolower($_SERVER['HTTP_UFO_CONNECTION']) == 'close'){
+			header('Connection: close');
+		}
 	}
 
 	public function write(){
