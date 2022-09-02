@@ -79,6 +79,27 @@ class Ufo {
 		self::add('nop');
 	}
 
+	public static function websocket_permission($uid, $permissions){
+		self::add_websocket('permission',['uid'=>$uid,'permissions'=>$permissions]);
+	}
+
+	public static function websocket_message($channel, $message){
+		self::add_websocket('message',['channel'=>$channel,'message'=>$message]);
+	}
+
+	public static function websocket_subscribe($channel){
+		self::add('websocket_subscribe',['channel'=>$channel]);
+	}
+
+	public static function websocket_accept_uid($permissions){
+		if(empty($_POST['ufo_websocket_uid']) || !is_string($_POST['ufo_websocket_uid'])){
+			return;
+		}
+		$uid = $_POST['ufo_websocket_uid'];
+		self::websocket_permission($uid, $permissions);
+		return $uid;
+	}
+
 	private static $instance;
 	private static function get_instance(){
 		if(!isset(self::$instance)) self::$instance = new self();
@@ -91,7 +112,14 @@ class Ufo {
 		$instance->messages[] = $data;
 	}
 
+	private static function add_websocket($type, $data = []){
+		$data['type'] = $type;
+		$instance = self::get_instance();
+		$instance->websocket_messages[] = $data;
+	}
+
 	private $messages = [];
+	private $websocket_messages = [];
 	private function __construct(){
 		$this->handle_connection_close_request();
 		register_shutdown_function([$this,'write']);
@@ -104,6 +132,20 @@ class Ufo {
 	}
 
 	public function write(){
+		if(!empty($this->websocket_messages)
+			&& defined('UFO_WEBSOCKET_HOST')
+			&& defined('UFO_WEBSOCKET_BACKEND_PORT')
+		){
+			$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+			socket_bind($socket, UFO_WEBSOCKET_HOST);
+			if(socket_last_error()) self::log(socket_strerror(socket_last_error()));
+			socket_connect($socket, UFO_WEBSOCKET_HOST, UFO_WEBSOCKET_BACKEND_PORT);
+			if(socket_last_error()) self::log(socket_strerror(socket_last_error()));
+
+			foreach($this->websocket_messages as $msg){
+				socket_write($socket, json_encode($msg).PHP_EOL);
+			}
+		}
 		if(!empty($this->messages)){
 			$error = error_get_last();
 			if(headers_sent() || isset($error)) echo "\x02";
