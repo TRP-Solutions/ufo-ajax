@@ -1,8 +1,10 @@
 use config::Config;
-use futures::StreamExt;
+use env_logger;
+use futures::{FutureExt, StreamExt};
+use log::{debug, error, info, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
-use syslog::{Facility, Formatter3164, LoggerBackend};
+use std::{collections::HashMap, collections::HashSet, net::IpAddr, sync::Arc};
+use syslog::{BasicLogger, Facility, Formatter3164};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
@@ -31,8 +33,7 @@ impl Client {
 
 struct State {
     clients: Mutex<HashMap<Uuid, Client>>,
-    subscriptions: Mutex<HashMap<String, Vec<Uuid>>>,
-    syslog: Mutex<syslog::Logger<LoggerBackend, Formatter3164>>,
+    subscriptions: Mutex<HashMap<String, HashSet<Uuid>>>,
 }
 
 impl State {
@@ -40,33 +41,19 @@ impl State {
         Arc::new(Self {
             clients: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
-            syslog: Mutex::new(State::init_syslog()),
         })
-    }
-
-    fn init_syslog() -> syslog::Logger<LoggerBackend, Formatter3164> {
-        let formatter = Formatter3164 {
-            facility: Facility::LOG_LOCAL7,
-            process: "Ufo-Websocket".to_string(),
-            hostname: None,
-            ..Default::default()
-        };
-
-        syslog::unix(formatter).expect("Failed to connect to syslog")
     }
 
     async fn new_client(&self, sender: Sender) -> Uuid {
         let uuid = Uuid::new_v4();
         let mut locked_clients = self.clients.lock().await;
         locked_clients.insert(uuid, Client::new(sender));
-        self.log_info(&format!("Client {} connected", uuid)).await;
+        info!("Client {} connected", uuid);
         if let Some(client) = locked_clients.get(&uuid) {
             if let Some(sender) = &client.sender {
-                self.log_error(
-                    UfoMessage::Uid { uid: uuid }.send(sender),
-                    "Sending uid to client",
-                )
-                .await;
+                if let Err(e) = (UfoMessage::Uid { uid: uuid }).send(sender) {
+                    error!("Sending uid to client: {:?}", e);
+                }
             }
         }
         uuid
@@ -78,15 +65,15 @@ impl State {
             for permission in permissions {
                 client.permissions.push(permission.to_string());
             }
-            self.log_debug(&format!(
+            debug!(
                 "Client {} received permissions: {:?}",
                 client_id, permissions
-            ))
-            .await;
+            );
             if !client.ready {
                 if let Some(sender) = &client.sender {
-                    self.log_error(UfoMessage::Ready.send(sender), "Sending ready to client")
-                        .await;
+                    if let Err(e) = UfoMessage::Ready.send(sender) {
+                        error!("Sending ready to client: {:?}", e);
+                    }
                 }
                 client.ready = true;
             }
@@ -103,18 +90,18 @@ impl State {
         if let Some(client) = locked_clients.get(&client_id) {
             if client.permissions.iter().any(|p| p == channel) {
                 if let Some(client_list) = locked_subscriptions.get_mut(channel) {
-                    client_list.push(client_id);
+                    client_list.insert(client_id);
                 } else {
-                    locked_subscriptions.insert(channel.to_string(), vec![client_id]);
+                    let mut set = HashSet::new();
+                    set.insert(client_id);
+                    locked_subscriptions.insert(channel.to_string(), set);
                 }
-                self.log_debug(&format!("Client {} subscribed to {:?}", client_id, channel))
-                    .await;
+                debug!("Client {} subscribed to {:?}", client_id, channel);
             } else {
-                self.log_notice(&format!(
+                warn!(
                     "Client {} tried subscribing to {:?} but didn't have permission",
                     client_id, channel
-                ))
-                .await;
+                );
             }
         }
     }
@@ -129,8 +116,7 @@ impl State {
     async fn client_disconnect(&self, client_id: Uuid) {
         self.reset_subscription(client_id).await;
         self.clients.lock().await.remove(&client_id);
-        self.log_info(&format!("Client {} disconnected", client_id))
-            .await;
+        info!("Client {} disconnected", client_id);
     }
 
     async fn broadcast_message(&self, channel: &str, message: &str) {
@@ -144,69 +130,75 @@ impl State {
             let msg = match (UfoMessage::Broadcast { channel, message }).output() {
                 Ok(msg) => msg,
                 Err(e) => {
-                    self.log_error_raw(e, "Building broadcast").await;
+                    error!("Building broadcast: {:?}", e);
                     return;
                 }
             };
-            self.log_debug(&format!(
+            debug!(
                 "Broadcasting to {} clients on channel {:?}",
                 client_list.len(),
                 channel
-            ))
-            .await;
+            );
             for client_id in client_list {
                 if let Some(client) = locked_clients.get(client_id) {
                     if let Some(sender) = &client.sender {
-                        self.log_error(
-                            sender.send(Ok(Message::text(&msg))),
-                            &format!("Broadcasting to clients on channel {:?}", channel),
-                        )
-                        .await;
+                        if let Err(e) = sender.send(Ok(Message::text(&msg))) {
+                            error!("Broadcasting to clients on channel {:?}: {:?}", channel, e)
+                        }
                     }
                 }
             }
         }
     }
+}
 
-    async fn log_error(&self, res: Result<(), impl Into<UfoError>>, context: &str) {
-        if let Err(e) = res {
-            self.log_error_raw(e.into(), context).await;
+#[derive(Debug)]
+enum LoggingMethod {
+    Syslog(String),
+    Print,
+}
+
+impl LoggingMethod {
+    fn from_config(config: Config) -> Self {
+        if let Ok(value) = config.get::<String>("log") {
+            match value.as_str() {
+                "syslog" => {
+                    return Self::Syslog(
+                        config
+                            .get("syslog_name")
+                            .unwrap_or_else(|_| "Ufo-Websocket".to_string()),
+                    )
+                }
+                "print" => return Self::Print,
+                _ => (),
+            }
+        };
+        println!("Undefined logging method. Defaulting to env_logger.");
+        Self::Print
+    }
+
+    fn init(self) {
+        match self {
+            Self::Syslog(process) => {
+                let formatter = Formatter3164 {
+                    facility: Facility::LOG_LOCAL7,
+                    process,
+                    hostname: None,
+                    ..Default::default()
+                };
+
+                let logger = syslog::unix(formatter).expect("Failed to connect to syslog");
+                log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
+                    .map(|()| log::set_max_level(LevelFilter::Debug))
+                    .expect("could not register logger");
+            }
+            Self::Print => {
+                env_logger::Builder::from_env(
+                    env_logger::Env::default().default_filter_or("debug"),
+                )
+                .init();
+            }
         }
-    }
-
-    async fn log_error_raw(&self, err: UfoError, context: &str) {
-        let err_string = format!("{}: {:?}", context, err);
-        self.syslog
-            .lock()
-            .await
-            .err(&err_string)
-            .unwrap_or_else(|e| {
-                println!("Error writing to syslog: {}\n[Error]: {}", e, err_string)
-            });
-    }
-
-    async fn log_info(&self, msg: &str) {
-        self.syslog
-            .lock()
-            .await
-            .info(msg)
-            .unwrap_or_else(|e| println!("Error writing to syslog: {}\n[Info]: {}", e, msg));
-    }
-
-    async fn log_debug(&self, msg: &str) {
-        self.syslog
-            .lock()
-            .await
-            .debug(msg)
-            .unwrap_or_else(|e| println!("Error writing to syslog: {}\n[Debug]: {}", e, msg));
-    }
-
-    async fn log_notice(&self, msg: &str) {
-        self.syslog
-            .lock()
-            .await
-            .notice(msg)
-            .unwrap_or_else(|e| println!("Error writing to syslog: {}\n[Notice]: {}", e, msg));
     }
 }
 
@@ -264,22 +256,23 @@ async fn main() {
 
     let config_builder = Config::builder().add_source(config::File::with_name("config"));
 
-    let (host, frontend_port, backend_port) = match config_builder.build() {
+    let (host, frontend_port, backend_port, logging_method) = match config_builder.build() {
         Ok(config) => (
             config.get("host").unwrap_or_else(|_| [127, 0, 0, 1].into()),
             config.get("port_frontend").unwrap_or(8080),
             config.get("port_backend").unwrap_or(8081),
+            LoggingMethod::from_config(config),
         ),
         Err(e) => {
-            state
-                .log_notice(&format!(
-                    "Failed reading config file. Using default values. (Error: {:?})",
-                    e
-                ))
-                .await;
-            ([127, 0, 0, 1].into(), 8080, 8081)
+            println!(
+                "Failed reading config file. Using default values. ({:?})",
+                e
+            );
+            ([127, 0, 0, 1].into(), 8080, 8081, LoggingMethod::Print)
         }
     };
+
+    logging_method.init();
 
     let backend = backend_server(state.clone(), (host, backend_port));
 
@@ -289,30 +282,26 @@ async fn main() {
         ws.on_upgrade(move |socket| client_connection(socket, state))
     });
 
-    state
-        .log_info(&format!("Frontend listening on {}:{}", host, frontend_port))
-        .await;
+    info!("Frontend listening on {}:{}", host, frontend_port);
     tokio::join!(
         warp::serve(frontend_websocket).run((host, frontend_port)),
         backend
     );
 
-    state.log_info("Program ended").await;
+    info!("Program ended");
 }
 
 async fn backend_server(state: Arc<State>, addr: (IpAddr, u16)) {
     match TcpListener::bind(addr).await {
         Ok(listener) => {
-            state
-                .log_info(&format!("Backend listening on {}:{}", addr.0, addr.1))
-                .await;
+            info!("Backend listening on {}:{}", addr.0, addr.1);
             loop {
-                state
-                    .log_error(backend_listen(&listener, &state).await, "Failed to listen")
-                    .await;
+                if let Err(e) = backend_listen(&listener, &state).await {
+                    error!("Failed to listen: {:?}", e);
+                }
             }
         }
-        Err(e) => state.log_error_raw(e.into(), "Failed to bind").await,
+        Err(e) => error!("Failed to bind: {:?}", e),
     }
 }
 
@@ -325,18 +314,13 @@ async fn backend_listen(listener: &TcpListener, state: &Arc<State>) -> Result<()
 
 async fn backend_connection(mut socket: TcpStream, state: Arc<State>) {
     if let Ok(addr) = socket.peer_addr() {
-        state
-            .log_info(&format!("Backend incoming connection from {:?}", addr))
-            .await;
+        info!("Backend incoming connection from {:?}", addr);
     }
     let mut string_buffer = String::new();
     loop {
-        state
-            .log_error(
-                backend_handle(&mut socket, &state, &mut string_buffer).await,
-                "Error handling message from backend",
-            )
-            .await;
+        if let Err(e) = backend_handle(&mut socket, &state, &mut string_buffer).await {
+            error!("Error handling message from backend: {:?}", e);
+        }
     }
 }
 
@@ -365,19 +349,18 @@ async fn client_connection(ws: WebSocket, state: Arc<State>) {
 
     let client_rcv = UnboundedReceiverStream::new(client_rcv);
 
-    tokio::task::spawn(
-        client_rcv.forward(client_ws_sender), //.map(move |result| { state_clone.log_error(result, "Sending to client").await;})
-    );
+    tokio::task::spawn(client_rcv.forward(client_ws_sender).map(|result| {
+        if let Err(e) = result {
+            error!("Sending to client: {:?}", e);
+        }
+    }));
 
     let uuid = state.new_client(client_sender).await;
 
     while let Some(result) = client_ws_rcv.next().await {
-        state
-            .log_error(
-                client_msg(uuid, result, &state).await,
-                "Error handling message from client",
-            )
-            .await;
+        if let Err(e) = client_msg(uuid, result, &state).await {
+            error!("Error handling message from client: {:?}", e);
+        }
     }
     state.client_disconnect(uuid).await;
 }

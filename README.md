@@ -54,3 +54,15 @@ Communicating via `websocket-server` from the PHP backend works by using the fou
 ### `auth` : Authorization Endpoint
 The authorization endpoint is required to let the backend control which clients are allowed to subscribe to channels. The endpoint should authenticate the client based on session data or similar methods, and if authenticated, call `Ufo::websocket_accept_uid` to assign permissions to the incoming client UID.
 
+## Configuring the websocket-server
+Websocket-server tries to read a `config.json` file in the current working directory. If there is one, it reads the following keys:
+
+|Key|Default Value|
+|---|-------------|
+|host|"127.0.0.1"|
+|port_frontend|8080|
+|port_backend|8081|
+|log|"print"|
+|syslog_name|"Ufo-Websocket"|
+
+If `log` is set to `"syslog"`, then it will attempt to connect to syslog for all logging purposes and use `syslog_name` as the process name.

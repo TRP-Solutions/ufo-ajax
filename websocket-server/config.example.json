@@ -1,5 +1,7 @@
 {
 	"host": "127.0.0.1",
 	"port_frontend": 8080,
-	"port_backend": 8081
+	"port_backend": 8081,
+	"log":"syslog",
+	"syslog_name": "Ufo-Websocket"
 }
