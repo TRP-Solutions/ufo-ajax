@@ -148,6 +148,9 @@ class Ufo {
 		}
 		if(!empty($this->messages)){
 			$error = error_get_last();
+			if(!headers_sent()) {
+				header('Content-Type: application/json; charset=utf-8');
+			}
 			if(headers_sent() || isset($error)) echo "\x02";
 			echo json_encode($this->messages);
 		}
