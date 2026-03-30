@@ -1,8 +1,14 @@
 <?php
+/*
+UfoAjax is licensed under the Apache License 2.0 license
+https://github.com/TRP-Solutions/ufo-ajax/blob/master/LICENSE
+*/
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/ufo.php';
 require_once __DIR__ . '/../../../heal-document/lib/HealDocument.php';
-require_once __DIR__ . '/../../../bootsome/lib/BootSome.php';
+require_once __DIR__ . '/../../../boot-some/lib/BootSome.php';
 
 function head($title="Counter sample")
 {
@@ -17,7 +23,7 @@ function head($title="Counter sample")
 		'content' => 'width=device-width, initial-scale=1'
 	]);
 
-	BootSome::$head->css('/bootsome/lib/BootSome.css');
+	BootSome::$head->css('/boot-some/lib/BootSome.css');
 
 	BootSome::$head->el('script',['src'=>'/bootsome/lib/bootstrap.bundle.min.js']);
 	BootSome::$head->el('script',['src'=>'/ufo-ajax/lib/ufo.js']);
