@@ -5,7 +5,7 @@ use log::{debug, error, info, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, collections::HashSet, net::IpAddr, sync::Arc};
 use syslog::{BasicLogger, Facility, Formatter3164};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -59,7 +59,7 @@ impl State {
         uuid
     }
 
-    async fn set_permission(&self, client_id: Uuid, permissions: &Vec<&str>) {
+    async fn set_permission(&self, client_id: Uuid, permissions: &Vec<String>) {
         let mut locked_clients = self.clients.lock().await;
         if let Some(client) = locked_clients.get_mut(&client_id) {
             for permission in permissions {
@@ -127,13 +127,16 @@ impl State {
         let locked_subscriptions = self.subscriptions.lock().await;
         if let Some(client_list) = locked_subscriptions.get(channel) {
             let locked_clients = self.clients.lock().await;
-            let msg = match (UfoMessage::Broadcast { channel, message }).output() {
-                Ok(msg) => msg,
-                Err(e) => {
-                    error!("Building broadcast: {:?}", e);
-                    return;
-                }
-            };
+			let msg = match (UfoMessage::Broadcast {
+				channel: channel.to_string(),
+				message: message.to_string(),
+			}).output() {
+				Ok(msg) => msg,
+				Err(e) => {
+					error!("Building broadcast: {:?}", e);
+					return;
+				}
+			};
             debug!(
                 "Broadcasting to {} clients on channel {:?}",
                 client_list.len(),
@@ -204,29 +207,29 @@ impl LoggingMethod {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum UfoMessage<'a> {
+enum UfoMessage {
     Permission {
         uid: Uuid,
-        permissions: Vec<&'a str>,
+        permissions: Vec<String>,
     },
     Message {
-        channel: &'a str,
-        message: &'a str,
+        channel: String,
+        message: String,
     },
     Broadcast {
-        channel: &'a str,
-        message: &'a str,
+        channel: String,
+        message: String,
     },
     Uid {
         uid: Uuid,
     },
     Subscribe {
-        channel: &'a str,
+        channel: String,
     },
     Ready,
 }
 
-impl<'a> UfoMessage<'a> {
+impl UfoMessage {
     fn output(&self) -> Result<String, UfoError> {
         Ok(serde_json::to_string(self)?)
     }
@@ -312,33 +315,38 @@ async fn backend_listen(listener: &TcpListener, state: &Arc<State>) -> Result<()
     Ok(())
 }
 
-async fn backend_connection(mut socket: TcpStream, state: Arc<State>) {
+async fn backend_connection(socket: TcpStream, state: Arc<State>) {
     if let Ok(addr) = socket.peer_addr() {
         info!("Backend incoming connection from {:?}", addr);
     }
-    let mut string_buffer = String::new();
-    loop {
-        if let Err(e) = backend_handle(&mut socket, &state, &mut string_buffer).await {
+
+    let reader = BufReader::new(socket);
+    let mut lines = reader.lines();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        if let Err(e) = backend_handle_line(&line, &state).await {
             error!("Error handling message from backend: {:?}", e);
         }
     }
+
+    info!("Backend connection closed");
 }
 
-async fn backend_handle(
-    socket: &mut TcpStream,
+async fn backend_handle_line(
+    line: &str,
     state: &Arc<State>,
-    buffer: &mut String,
 ) -> Result<(), UfoError> {
-    let bytes_read = socket.read_to_string(buffer).await?;
-    if bytes_read == 0 {
-        return Ok(());
-    }
     use UfoMessage::*;
-    match serde_json::from_str(buffer)? {
-        Permission { uid, permissions } => state.set_permission(uid, &permissions).await,
-        Message { channel, message } => state.broadcast_message(channel, message).await,
+
+    match serde_json::from_str(line)? {
+        Permission { uid, permissions } => {
+            state.set_permission(uid, &permissions).await
+        }
+        Message { channel, message } => {
+            state.broadcast_message(&channel, &message).await
+        }
         _ => (),
-    };
+    }
 
     Ok(())
 }
@@ -373,7 +381,7 @@ async fn client_msg(
     let message = message?;
     if let Ok(msg) = message.to_str() {
         match serde_json::from_str(msg)? {
-            UfoMessage::Subscribe { channel } => state.add_subscription(client_id, channel).await,
+            UfoMessage::Subscribe { channel } => state.add_subscription(client_id, &channel).await,
             _ => (),
         }
     };
