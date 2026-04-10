@@ -1,2 +1,3 @@
 websocket-server/target
 Cargo.lock
+.idea
