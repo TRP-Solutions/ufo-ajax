@@ -11,7 +11,7 @@ $body = head("Counter sample");
 $body->at(['class'=>'m-0 p-0']);
 
 $body->at([
-	'onload' => "Ufo.get('main','counter/load.script.php');"
+	'onload' => "Ufo.get('main','load.script.php');"
 ]);
 
 $main = $body->el('div')->at([
@@ -41,10 +41,10 @@ $btnRow = $cardBody->el('div')->at([
 
 $btnRow->button("Increase")->at([
 	'class'=>'btn btn-success px-4 py-2',
-	'onclick'=>"Ufo.get('main','counter/counter.script.php');"
+	'onclick'=>"Ufo.get('main','counter.script.php');"
 ]);
 
 $btnRow->button("Reset")->at([
 	'class'=>'btn btn-outline-secondary px-4 py-2',
-	'onclick'=>"Ufo.get('main','counter/reset.script.php');"
+	'onclick'=>"Ufo.get('main','reset.script.php');"
 ]);

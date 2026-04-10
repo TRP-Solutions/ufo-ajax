@@ -9,7 +9,7 @@ $main = $body->el('div')->at([
 ]);
 
 $body->at([
-	'onload' => "Ufo.get('main','webchat/load.script.php');"
+	'onload' => "Ufo.get('main','load.script.php');"
 ]);
 
 
@@ -19,7 +19,7 @@ $col = $row->col('col-md-6','offset-md-3','mt-5');
 
 $form = $col->form()->at([
 	'id' => 'sampleform',
-	'onsubmit' => "Ufo.post('main','webchat/form.script.php','sampleform'); return false;"
+	'onsubmit' => "Ufo.post('main','form.script.php','sampleform'); return false;"
 ]);
 
 $form->form_group()

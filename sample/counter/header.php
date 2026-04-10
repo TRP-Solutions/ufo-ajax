@@ -25,9 +25,9 @@ function head($title="Counter sample")
 
 	BootSome::$head->css('/boot-some/lib/BootSome.css');
 
-	BootSome::$head->el('script',['src'=>'/bootsome/lib/bootstrap.bundle.min.js']);
+	BootSome::$head->el('script',['src'=>'/boot-some/lib/bootstrap.bundle.min.js']);
 	BootSome::$head->el('script',['src'=>'/ufo-ajax/lib/ufo.js']);
-	BootSome::$head->el('script',['src'=>'/bootsome/lib/BootSome.js']);
+	BootSome::$head->el('script',['src'=>'/boot-some/lib/BootSome.js']);
 
 
 	return BootSome::$body;

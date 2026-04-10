@@ -16,7 +16,7 @@ $col = $row->col('col-md-6','offset-md-3','mt-5');
 
 $form = $col->form()->at([
 	'id' => 'sampleform',
-	'onsubmit' => "Ufo.post('main','form/form.script.php','sampleform'); return false;"
+	'onsubmit' => "Ufo.post('main','form.script.php','sampleform'); return false;"
 ]);
 
 $form->el('h4')->te("sample form");

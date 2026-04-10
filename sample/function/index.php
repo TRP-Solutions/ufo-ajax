@@ -30,5 +30,5 @@ $btnRow = $cardBody->el('div')->at([
 
 $btnRow->button("Call")->at([
 	'class'=>'btn btn-success px-4 py-2',
-	'onclick'=>"Ufo.get('main','function/call.script.php');"
+	'onclick'=>"Ufo.get('main','call.script.php');"
 ]);
